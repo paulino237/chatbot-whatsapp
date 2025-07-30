@@ -1,6 +1,7 @@
 const whatsappService = require('../services/whatsappService');
 const deepseekService = require('../services/deepseekService');
 const weatherService = require('../services/weatherService');
+const foodService = require('../services/foodService');
 const intentDetector = require('../utils/intentDetector');
 const menuHandler = require('./menuHandler');
 
@@ -31,9 +32,21 @@ class MessageHandler {
       return;
     }
 
+    if (userState.context === 'waiting_food_search') {
+      await this.handleFoodRequest(userId, userMessage);
+      this.conversationStates.delete(userId);
+      return;
+    }
+
     // Détection des intentions avec boutons
     if (intentDetector.isGreeting(lowerMessage)) {
       await this.sendWelcomeWithButtons(userId);
+    }
+    else if (intentDetector.isBarcodeMessage(userMessage)) {
+      await this.handleBarcodeRequest(userId, userMessage);
+    }
+    else if (intentDetector.isFoodRequest(lowerMessage) || intentDetector.isFoodSearchRequest(lowerMessage)) {
+      await this.handleFoodRequest(userId, userMessage);
     }
     else if (intentDetector.isWeatherRequest(lowerMessage)) {
       await this.handleWeatherRequest(userId, userMessage);
@@ -94,6 +107,29 @@ class MessageHandler {
       case 'fact_btn':
         await this.getRandomFact(userId);
         break;
+      // ===== BOUTONS ALIMENTAIRES =====
+      case 'food_btn':
+        await this.sendFoodMenu(userId);
+        break;
+      case 'food_search_btn':
+        await this.promptForFoodSearch(userId);
+        break;
+      case 'food_category_btn':
+        await this.sendFoodCategories(userId);
+        break;
+      case 'food_demo_btn':
+        await this.sendFoodDemo(userId);
+        break;
+      // Boutons de villes pour la météo
+      case 'paris_weather':
+        await this.handleWeatherRequest(userId, 'Paris');
+        break;
+      case 'lyon_weather':
+        await this.handleWeatherRequest(userId, 'Lyon');
+        break;
+      case 'marseille_weather':
+        await this.handleWeatherRequest(userId, 'Marseille');
+        break;
       default:
         await whatsappService.sendMessage(userId, "🤔 Option non reconnue. Tapez 'menu' pour voir les options disponibles.");
     }
@@ -105,6 +141,7 @@ class MessageHandler {
       "",
       "🤖 Je peux vous aider avec plein de choses :",
       "• Météo en temps réel",
+      "• Informations nutritionnelles", 
       "• Actualités du jour", 
       "• Divertissement",
       "• Films et séries",
@@ -115,7 +152,7 @@ class MessageHandler {
 
     const buttons = [
       { id: 'weather_btn', title: '🌤️ Météo' },
-      { id: 'news_btn', title: '📰 Actualités' },
+      { id: 'food_btn', title: '🍽️ Nutrition' },
       { id: 'entertainment_btn', title: '🎭 Divertissement' }
     ];
 
@@ -321,20 +358,22 @@ class MessageHandler {
       "━━━━━━━━━━━━━━━━━━━━",
       "",
       "🌤️ MÉTÉO : Tapez 'météo Paris' ou utilisez les boutons",
+      "🍽️ NUTRITION : Analysez des produits alimentaires",
       "📰 ACTUALITÉS : Dernières news du jour",
       "🎭 DIVERTISSEMENT : Blagues, citations, faits",
       "🎬 FILMS : Films populaires et recherche",
       "💬 CONVERSATION : Posez-moi n'importe quelle question !",
       "",
-      "💡 ASTUCE : Parlez-moi naturellement, je comprends !"
+      "💡 ASTUCE : Parlez-moi naturellement, je comprends !",
+      "🔍 NUTRITION : Envoyez un code-barres ou tapez 'produit [nom]'"
     ].join("\n");
 
     await whatsappService.sendMessage(userId, helpText);
 
     const buttons = [
       { id: 'weather_btn', title: '🌤️ Météo' },
-      { id: 'entertainment_btn', title: '🎭 Divertissement' },
-      { id: 'news_btn', title: '📰 Actualités' }
+      { id: 'food_btn', title: '🍽️ Nutrition' },
+      { id: 'entertainment_btn', title: '🎭 Divertissement' }
     ];
 
     await whatsappService.sendButtons(
@@ -353,6 +392,7 @@ class MessageHandler {
       // Proposer des actions après la réponse
       const buttons = [
         { id: 'weather_btn', title: '🌤️ Météo' },
+        { id: 'food_btn', title: '🍽️ Nutrition' },
         { id: 'entertainment_btn', title: '🎭 Divertissement' },
         { id: 'help_btn', title: '🆘 Menu' }
       ];
@@ -369,6 +409,237 @@ class MessageHandler {
         userId, 
         "🤔 Désolé, je n'ai pas pu traiter votre demande. Tapez 'menu' pour voir mes fonctionnalités."
       );
+    }
+  }
+
+  // ===== NOUVELLES FONCTIONS ALIMENTAIRES =====
+
+  async handleBarcodeRequest(userId, message) {
+    const barcode = foodService.extractBarcodeFromMessage(message);
+    
+    if (barcode) {
+      await whatsappService.sendMessage(userId, "🔍 Recherche du produit en cours...");
+      
+      const result = await foodService.getProductByBarcode(barcode);
+      
+      if (result.success) {
+        await whatsappService.sendMessage(userId, result.data);
+        
+        // Proposer des actions supplémentaires
+        const buttons = [
+          { id: 'food_search_btn', title: '🔍 Autre produit' },
+          { id: 'food_category_btn', title: '📂 Catégories' },
+          { id: 'help_btn', title: '🆘 Menu' }
+        ];
+        
+        await whatsappService.sendButtons(
+          userId,
+          "Voulez-vous analyser un autre produit ?",
+          buttons
+        );
+      } else {
+        await whatsappService.sendMessage(userId, result.message);
+        await this.sendFoodHelpButtons(userId);
+      }
+    }
+  }
+
+  async handleFoodRequest(userId, message) {
+    const productName = foodService.extractProductNameFromMessage(message);
+    
+    if (productName) {
+      await whatsappService.sendMessage(userId, `🔍 Recherche de "${productName}" en cours...`);
+      
+      const result = await foodService.searchProductsByName(productName, 3);
+      
+      if (result.success) {
+        let searchMessage = [
+          "🔍 RÉSULTATS DE RECHERCHE",
+          "━━━━━━━━━━━━━━━━━━━━",
+          ""
+        ];
+        
+        result.data.forEach((product, index) => {
+          searchMessage.push(`${index + 1}. ${product.display}`);
+          searchMessage.push("");
+        });
+        
+        searchMessage.push("💡 Envoyez un code-barres pour plus de détails !");
+        
+        await whatsappService.sendMessage(userId, searchMessage.join("\n"));
+        
+        // Proposer des actions
+        const buttons = [
+          { id: 'food_search_btn', title: '🔍 Autre recherche' },
+          { id: 'food_category_btn', title: '📂 Catégories' },
+          { id: 'help_btn', title: '🆘 Menu' }
+        ];
+        
+        await whatsappService.sendButtons(
+          userId,
+          "Que voulez-vous faire ?",
+          buttons
+        );
+      } else {
+        await whatsappService.sendMessage(userId, result.message);
+        await this.sendFoodHelpButtons(userId);
+      }
+    } else {
+      await this.sendFoodMenu(userId);
+    }
+  }
+
+  async sendFoodMenu(userId) {
+    const foodText = [
+      "🍽️ INFORMATIONS NUTRITIONNELLES",
+      "━━━━━━━━━━━━━━━━━━━━",
+      "",
+      "Je peux vous aider à analyser des produits alimentaires !",
+      "",
+      "📱 COMMENT UTILISER :",
+      "• Envoyez un code-barres (ex: 3017620422003)",
+      "• Tapez 'produit [nom]' (ex: produit nutella)",
+      "• Choisissez une catégorie ci-dessous",
+      "",
+      "📊 J'ANALYSE :",
+      "• Nutri-Score et NOVA",
+      "• Ingrédients et additifs",
+      "• Valeurs nutritionnelles",
+      "• Allergènes"
+    ].join("\n");
+
+    const buttons = [
+      { id: 'food_search_btn', title: '🔍 Rechercher' },
+      { id: 'food_category_btn', title: '📂 Catégories' },
+      { id: 'food_demo_btn', title: '🧪 Démo' }
+    ];
+
+    await whatsappService.sendButtons(
+      userId,
+      foodText,
+      buttons,
+      "🍽️ Nutrition & Santé",
+      "Données fournies par OpenFoodFacts"
+    );
+  }
+
+  async sendFoodCategories(userId) {
+    const categories = foodService.getPopularCategories();
+    
+    const sections = [
+      {
+        title: "Catégories populaires",
+        rows: categories.map(cat => ({
+          id: `food_cat_${cat.id}`,
+          title: `${cat.emoji} ${cat.name}`,
+          description: `Découvrir les ${cat.name.toLowerCase()}`
+        }))
+      }
+    ];
+
+    await whatsappService.sendList(
+      userId,
+      "Choisissez une catégorie d'aliments à explorer :",
+      sections,
+      "📂 Catégories Alimentaires",
+      "Données OpenFoodFacts"
+    );
+  }
+
+  async sendFoodDemo(userId) {
+    // Démonstration avec un produit populaire (Nutella)
+    await whatsappService.sendMessage(userId, "🧪 Démonstration avec un produit populaire...");
+    
+    const result = await foodService.getProductByBarcode("3017620422003"); // Code-barres Nutella
+    
+    if (result.success) {
+      await whatsappService.sendMessage(userId, result.data);
+      
+      const buttons = [
+        { id: 'food_search_btn', title: '🔍 Rechercher' },
+        { id: 'food_category_btn', title: '📂 Catégories' },
+        { id: 'help_btn', title: '🆘 Menu' }
+      ];
+      
+      await whatsappService.sendButtons(
+        userId,
+        "Essayez maintenant avec vos propres produits !",
+        buttons
+      );
+    } else {
+      await whatsappService.sendMessage(userId, "❌ Erreur lors de la démonstration. Essayez avec un autre code-barres !");
+      await this.sendFoodHelpButtons(userId);
+    }
+  }
+
+  async sendFoodHelpButtons(userId) {
+    const buttons = [
+      { id: 'food_search_btn', title: '🔍 Rechercher' },
+      { id: 'food_category_btn', title: '📂 Catégories' },
+      { id: 'help_btn', title: '🆘 Menu' }
+    ];
+
+    await whatsappService.sendButtons(
+      userId,
+      "Comment puis-je vous aider avec la nutrition ?",
+      buttons
+    );
+  }
+
+  async handleListResponse(userId, listId) {
+    // Gérer les réponses de liste pour les catégories alimentaires
+    if (listId.startsWith('food_cat_')) {
+      const categoryId = listId.replace('food_cat_', '');
+      await this.handleFoodCategorySelection(userId, categoryId);
+    } else {
+      await whatsappService.sendMessage(userId, "🤔 Option non reconnue. Tapez 'menu' pour voir les options disponibles.");
+    }
+  }
+
+  async promptForFoodSearch(userId) {
+    this.conversationStates.set(userId, { context: 'waiting_food_search', data: {} });
+    
+    await whatsappService.sendMessage(
+      userId,
+      "🔍 RECHERCHE DE PRODUIT\n━━━━━━━━━━━━━━━━━━━━\n\nTapez le nom du produit que vous voulez analyser :\n\nExemples :\n• Nutella\n• Coca Cola\n• Pain de mie\n• Yaourt nature\n\nOu envoyez directement un code-barres !"
+    );
+  }
+
+  async handleFoodCategorySelection(userId, categoryId) {
+    await whatsappService.sendMessage(userId, `🔍 Recherche de produits dans la catégorie "${categoryId}"...`);
+    
+    const result = await foodService.getProductsByCategory(categoryId, 5);
+    
+    if (result.success) {
+      let categoryMessage = [
+        `📂 PRODUITS - ${categoryId.toUpperCase()}`,
+        "━━━━━━━━━━━━━━━━━━━━",
+        ""
+      ];
+      
+      result.data.forEach((product, index) => {
+        categoryMessage.push(`${index + 1}. ${product.display}`);
+        categoryMessage.push("");
+      });
+      
+      categoryMessage.push("💡 Envoyez un code-barres pour plus de détails !");
+      
+      await whatsappService.sendMessage(userId, categoryMessage.join("\n"));
+      
+      const buttons = [
+        { id: 'food_category_btn', title: '📂 Autres catégories' },
+        { id: 'food_search_btn', title: '🔍 Rechercher' },
+        { id: 'help_btn', title: '🆘 Menu' }
+      ];
+      
+      await whatsappService.sendButtons(
+        userId,
+        "Que voulez-vous faire ?",
+        buttons
+      );
+    } else {
+      await whatsappService.sendMessage(userId, result.message);
+      await this.sendFoodHelpButtons(userId);
     }
   }
 }

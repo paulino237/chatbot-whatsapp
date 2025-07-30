@@ -44,6 +44,32 @@ class IntentDetector {
     return questionWords.some(word => message.startsWith(word)) || message.includes('?');
   }
 
+  isFoodRequest(message) {
+    const foodKeywords = [
+      'produit', 'aliment', 'nourriture', 'nutrition', 'nutriscore', 'ingrédients', 'ingredients',
+      'calories', 'barcode', 'code-barres', 'code barre', 'scanner', 'scan',
+      'allergie', 'allergène', 'additif', 'bio', 'composition', 'étiquette',
+      'manger', 'food', 'eat', 'diet', 'régime', 'santé', 'healthy'
+    ];
+    return foodKeywords.some(keyword => message.includes(keyword));
+  }
+
+  isBarcodeMessage(message) {
+    // Détecte si le message contient un code-barres (8-14 chiffres)
+    return /\b\d{8,14}\b/.test(message);
+  }
+
+  isFoodSearchRequest(message) {
+    const searchPatterns = [
+      /cherche\s+(.+)/i,
+      /recherche\s+(.+)/i,
+      /info\s+(.+)/i,
+      /produit\s+(.+)/i,
+      /nutrition\s+(.+)/i
+    ];
+    return searchPatterns.some(pattern => pattern.test(message));
+  }
+
   analyzeSentiment(message) {
     const positiveWords = ['content', 'heureux', 'joie', 'super', 'génial', 'parfait', 'excellent', 'bien'];
     const negativeWords = ['triste', 'mal', 'problème', 'difficile', 'ennui', 'fatigue', 'stress'];

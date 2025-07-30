@@ -10,6 +10,7 @@ class MenuHandler {
       "",
       "💡 Exemples :",
       "• 'Météo Paris'",
+      "• 'Produit Nutella' ou code-barres",
       "• 'Raconte-moi une blague'",
       "• 'Comment ça va ?'",
       "• 'Traduis hello en français'"
@@ -17,7 +18,7 @@ class MenuHandler {
 
     const buttons = [
       { id: 'weather_btn', title: '🌤️ Météo' },
-      { id: 'news_btn', title: '📰 Actualités' },
+      { id: 'food_btn', title: '🍽️ Nutrition' },
       { id: 'entertainment_btn', title: '🎭 Divertissement' }
     ];
 
